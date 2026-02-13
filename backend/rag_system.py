@@ -4,7 +4,7 @@ from document_processor import DocumentProcessor
 from vector_store import VectorStore
 from ai_generator import AIGenerator
 from session_manager import SessionManager
-from search_tools import ToolManager, CourseSearchTool
+from search_tools import ToolManager, CourseSearchTool, CourseOutlineTool
 from models import Course, Lesson, CourseChunk
 
 class RAGSystem:
@@ -22,7 +22,9 @@ class RAGSystem:
         # Initialize search tools
         self.tool_manager = ToolManager()
         self.search_tool = CourseSearchTool(self.vector_store)
+        self.outline_tool = CourseOutlineTool(self.vector_store)
         self.tool_manager.register_tool(self.search_tool)
+        self.tool_manager.register_tool(self.outline_tool)
     
     def add_course_document(self, file_path: str) -> Tuple[Course, int]:
         """
@@ -99,7 +101,7 @@ class RAGSystem:
         
         return total_courses, total_chunks
     
-    def query(self, query: str, session_id: Optional[str] = None) -> Tuple[str, List[str]]:
+    def query(self, query: str, session_id: Optional[str] = None) -> Tuple[str, List[Dict]]:
         """
         Process a user query using the RAG system.
 
@@ -113,11 +115,34 @@ class RAGSystem:
             Tuple of (response, sources list)
         """
         # Search for relevant content first
-        context = self.search_tool.execute(query=query)
+        content_context = self.search_tool.execute(query=query)
 
-        # Get sources from the search
-        sources = self.search_tool.last_sources.copy()
+        # Also try the outline tool (adds course structure when relevant)
+        outline_context = self.outline_tool.execute(course_name=query)
+        has_outline = outline_context and not outline_context.startswith("No course found")
+
+        # Combine contexts — outline first so the LLM sees it prominently
+        context_parts = []
+        if has_outline:
+            context_parts.append(outline_context)
+        if content_context:
+            context_parts.append(content_context)
+        context = "\n\n".join(context_parts)
+
+        # Gather sources from both tools
+        sources = self.search_tool.last_sources.copy() + self.outline_tool.last_sources.copy()
         self.search_tool.last_sources = []
+        self.outline_tool.last_sources = []
+
+        # For outline queries, augment the query with an explicit instruction
+        effective_query = query
+        if has_outline:
+            effective_query = (
+                f"{query}\n\n"
+                "IMPORTANT: The context contains a complete course outline. "
+                "You MUST list every single lesson exactly as shown — do not skip, "
+                "group, or summarize any lessons."
+            )
 
         # Get conversation history if session exists
         history = None
@@ -126,7 +151,7 @@ class RAGSystem:
 
         # Generate response with retrieved context
         response = self.ai_generator.generate_response(
-            query=query,
+            query=effective_query,
             context=context,
             conversation_history=history
         )
