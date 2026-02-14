@@ -5,7 +5,7 @@ const API_URL = '/api';
 let currentSessionId = null;
 
 // DOM elements
-let chatMessages, chatInput, sendButton, totalCourses, courseTitles, newChatBtn;
+let chatMessages, chatInput, sendButton, totalCourses, courseTitles, newChatBtn, themeToggle;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -16,7 +16,9 @@ document.addEventListener('DOMContentLoaded', () => {
     totalCourses = document.getElementById('totalCourses');
     courseTitles = document.getElementById('courseTitles');
     newChatBtn = document.getElementById('newChatBtn');
+    themeToggle = document.getElementById('themeToggle');
 
+    initTheme();
     setupEventListeners();
     createNewSession();
     loadCourseStats();
@@ -29,6 +31,9 @@ function setupEventListeners() {
     chatInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
     });
+
+    // Theme toggle
+    themeToggle.addEventListener('click', toggleTheme);
 
     // New chat button
     newChatBtn.addEventListener('click', () => {
@@ -171,6 +176,28 @@ async function createNewSession() {
     currentSessionId = null;
     chatMessages.innerHTML = '';
     addMessage('Welcome to the Course Materials Assistant! I can help you with questions about courses, lessons and specific content. What would you like to know?', 'assistant', null, true);
+}
+
+// Theme Functions
+function initTheme() {
+    const saved = localStorage.getItem('theme');
+    const theme = saved || 'dark';
+    document.body.setAttribute('data-theme', theme);
+    updateThemeButton(theme);
+}
+
+function toggleTheme() {
+    const current = document.body.getAttribute('data-theme');
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.body.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    updateThemeButton(next);
+}
+
+function updateThemeButton(theme) {
+    themeToggle.setAttribute('aria-label',
+        theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'
+    );
 }
 
 // Load course statistics
