@@ -101,11 +101,16 @@ class RAGSystem:
         
         return total_courses, total_chunks
     
+    def _is_search_error(self, result: str) -> bool:
+        """Check if a search tool result is an error/empty message, not real content."""
+        error_prefixes = ("Search error:", "No relevant content found", "No course found")
+        return result.startswith(error_prefixes)
+
     def query(self, query: str, session_id: Optional[str] = None) -> Tuple[str, List[Dict]]:
         """
         Process a user query using the RAG system.
 
-        Searches course content first, then passes results as context to the LLM.
+        The LLM decides which tools to call via the tool-calling loop in AIGenerator.
 
         Args:
             query: User's question
@@ -114,49 +119,31 @@ class RAGSystem:
         Returns:
             Tuple of (response, sources list)
         """
-        # Search for relevant content first
-        content_context = self.search_tool.execute(query=query)
+        # Reset sources from previous query
+        self.tool_manager.reset_sources()
 
-        # Also try the outline tool (adds course structure when relevant)
-        outline_context = self.outline_tool.execute(course_name=query)
-        has_outline = outline_context and not outline_context.startswith("No course found")
-
-        # Combine contexts — outline first so the LLM sees it prominently
-        context_parts = []
-        if has_outline:
-            context_parts.append(outline_context)
-        if content_context:
-            context_parts.append(content_context)
-        context = "\n\n".join(context_parts)
-
-        # Gather sources from both tools
-        sources = self.search_tool.last_sources.copy() + self.outline_tool.last_sources.copy()
-        self.search_tool.last_sources = []
-        self.outline_tool.last_sources = []
-
-        # For outline queries, augment the query with an explicit instruction
-        effective_query = query
-        if has_outline:
-            effective_query = (
-                f"{query}\n\n"
-                "IMPORTANT: The context contains a complete course outline. "
-                "You MUST list every single lesson exactly as shown — do not skip, "
-                "group, or summarize any lessons."
-            )
-
-        # Get conversation history if session exists
+        # Get conversation history
         history = None
         if session_id:
             history = self.session_manager.get_conversation_history(session_id)
 
-        # Generate response with retrieved context
-        response = self.ai_generator.generate_response(
-            query=effective_query,
-            context=context,
-            conversation_history=history
-        )
+        # Let the LLM decide which tools to call
+        try:
+            response = self.ai_generator.generate_response(
+                query=query,
+                conversation_history=history,
+                tools=self.tool_manager.get_tool_definitions(),
+                tool_executor=self.tool_manager.execute_tool,
+            )
+        except Exception as e:
+            print(f"AI generation error: {e}")
+            sources = self.tool_manager.get_last_sources()
+            return "Sorry, I'm having trouble generating a response right now. Please try again.", sources
 
-        # Update conversation history
+        # Collect sources from all tools used during the conversation
+        sources = self.tool_manager.get_last_sources()
+
+        # Update session history
         if session_id:
             self.session_manager.add_exchange(session_id, query, response)
 

@@ -7,6 +7,23 @@ let currentSessionId = null;
 // DOM elements
 let chatMessages, chatInput, sendButton, totalCourses, courseTitles, newChatBtn;
 
+// Theme toggle
+function initTheme() {
+    const saved = localStorage.getItem('theme');
+    const theme = saved || 'dark';
+    document.documentElement.setAttribute('data-theme', theme);
+}
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme');
+    const next = current === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+}
+
+// Apply theme immediately to prevent flash
+initTheme();
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     // Get DOM elements after page loads
@@ -16,6 +33,8 @@ document.addEventListener('DOMContentLoaded', () => {
     totalCourses = document.getElementById('totalCourses');
     courseTitles = document.getElementById('courseTitles');
     newChatBtn = document.getElementById('newChatBtn');
+
+    document.getElementById('themeToggle').addEventListener('click', toggleTheme);
 
     setupEventListeners();
     createNewSession();

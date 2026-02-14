@@ -52,19 +52,29 @@ class CourseSearchTool(Tool):
             }
         }
     
-    def execute(self, query: str, course_name: Optional[str] = None, lesson_number: Optional[int] = None) -> str:
+    def execute(self, query: str = "", course_name: Optional[str] = None, lesson_number: Optional[int] = None) -> str:
         """
         Execute the search tool with given parameters.
-        
+
         Args:
             query: What to search for
             course_name: Optional course filter
             lesson_number: Optional lesson filter
-            
+
         Returns:
             Formatted search results or error message
         """
-        
+        # Coerce lesson_number to int (LLMs sometimes send it as a string)
+        if lesson_number is not None:
+            try:
+                lesson_number = int(lesson_number)
+            except (ValueError, TypeError):
+                lesson_number = None
+
+        # If query is empty but we have filters, use a generic query
+        if not query and (course_name or lesson_number is not None):
+            query = f"{course_name or ''} lesson {lesson_number or ''}".strip()
+
         # Use the vector store's unified search interface
         results = self.store.search(
             query=query,
@@ -120,8 +130,8 @@ class CourseSearchTool(Tool):
 
             formatted.append(f"{header}\n{doc}")
 
-        # Store sources for retrieval
-        self.last_sources = sources
+        # Accumulate sources (may be called multiple times per query)
+        self.last_sources.extend(sources)
 
         return "\n\n".join(formatted)
 
@@ -160,8 +170,8 @@ class CourseOutlineTool(Tool):
         link = outline.get("course_link") or "N/A"
         lessons = outline.get("lessons", [])
 
-        # Track source
-        self.last_sources = [{"title": title, "link": outline.get("course_link")}]
+        # Accumulate sources (may be called multiple times per query)
+        self.last_sources.extend([{"title": title, "link": outline.get("course_link")}])
 
         lines = [
             f"COURSE OUTLINE (list every lesson as a markdown bullet point):",
@@ -207,12 +217,17 @@ class ToolManager:
         return self.tools[tool_name].execute(**kwargs)
     
     def get_last_sources(self) -> list:
-        """Get sources from the last search operation"""
-        # Check all tools for last_sources attribute
+        """Get sources from all tools, deduplicated by (title, link)."""
+        seen = set()
+        sources = []
         for tool in self.tools.values():
-            if hasattr(tool, 'last_sources') and tool.last_sources:
-                return tool.last_sources
-        return []
+            if hasattr(tool, 'last_sources'):
+                for s in tool.last_sources:
+                    key = (s.get("title"), s.get("link"))
+                    if key not in seen:
+                        seen.add(key)
+                        sources.append(s)
+        return sources
 
     def reset_sources(self):
         """Reset sources from all tools that track sources"""
